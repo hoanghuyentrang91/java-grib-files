@@ -17,8 +17,6 @@ import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
 import ucar.ma2.Array;
-import ucar.nc2.dataset.CoordinateAxis;
-import ucar.nc2.dataset.CoordinateAxis1DTime;
 import ucar.nc2.dt.GridCoordSystem;
 import ucar.nc2.dt.grid.GeoGrid;
 import ucar.nc2.dt.grid.GridDataset;
@@ -34,7 +32,7 @@ public class GribTest
     public static void main( String[] args ) throws IOException, InterruptedException 
     {
     	long startTime = System.currentTimeMillis();
-    	int stepsNum = 10;
+    	int stepsNum = 5;
     	int bandNum = 19;
     	String firstDataFile = fullPath.substring(fullPath.lastIndexOf("/") + 1);
 		String currentStep = firstDataFile.substring(21,24);
@@ -45,7 +43,7 @@ public class GribTest
 		
 		float[][] data = new float[bandNum][stepsNum];
 		
-		final List<Callable<Array>> callables = new ArrayList<>();
+		final List<Callable<float[][]>> callables = new ArrayList<>();
 		final ExecutorService pool = Executors.newFixedThreadPool(stepsNum);
 		
 		for (int iTime = 0; iTime < stepsNum; iTime++) {
@@ -53,39 +51,79 @@ public class GribTest
 			String file =  firstDataFile.replace(("h" + currentStep), ("h" + timeStep));
 			String absPath = fullPath.replace(firstDataFile, file);
 			
-			callables.add(new NwpCallable(absPath, lon, lat, var));
+			// Using GridDataset
+//			callables.add(new NwpCallable(absPath, lon, lat, var));
+			
+			// Using RAF
+			callables.add(new NwpCallable2(absPath, lon, lat, var));
 		}
 		
-		List<Future<Array>> futures = pool.invokeAll(callables);
+		List<Future<float[][]>> futures = pool.invokeAll(callables);
 		try {
-			  for (final Future<Array> future : futures) {
-				  Array result = future.get(); 
-//				  System.out.println(result);	 
+			  for (final Future<float[][]> future : futures) {
+				  float[][] result = future.get(); 
+				  System.out.println(result[2][0]);	 
 			  }
 			} catch (ExecutionException | InterruptedException ex) { }
 			pool.shutdown();
 
 		
 		long endTime = System.currentTimeMillis();
-		System.out.println("time consuming:    " + (endTime - startTime));
+		System.out.println("time consuming:    " + (endTime - startTime));  	
     	
-    	
-//    	long startTime = System.currentTimeMillis();
-//        RandomAccessFile raf = new RandomAccessFile(path + "g512_v070_ergl_pres_h000.2018052212.gb2", "r");
-//		Grib2RecordScanner scan = new Grib2RecordScanner(raf);
-//		int count = 0;
-//		while (scan.hasNext()) {
-//			Grib2Record rec = scan.next();
-//			Grib2SectionDataRepresentation drs = rec.getDataRepresentationSection();
-//			float[] data = rec.readData(raf, drs.getStartingPosition());
-//		}
-//		long endTime = System.currentTimeMillis();
-//		System.out.println("time consuming:    " + (endTime - startTime));
-//		raf.close();
-		
     }
 }
 
+
+class NwpCallable2 implements Callable<float[][]> {
+
+	String absPath;
+	float lon;
+	float lat;
+	String var;	
+	
+	NwpCallable2(String absPath, float lon, float lat, String var) throws IOException {
+		this.absPath = absPath;
+		this.lon = lon;
+		this.lat = lat;
+		this.var = var;
+	}
+
+	public float[][] call() throws IOException {
+		RandomAccessFile raf = new RandomAccessFile(absPath, "r");
+		Grib2RecordScanner scan = new Grib2RecordScanner(raf);
+		int count = 0;
+		float[][] data = new float[4][19];
+		while (scan.hasNext()) {
+			count++;
+			Grib2Record rec = scan.next();
+			if (count >= 27 && count < 46) {		
+				float[] uData = rec.readData(raf);
+				System.out.println(uData.length);
+				data[0] = uData;
+			}
+			if (count >= 53 && count < 72) {			
+				float[] vData = rec.readData(raf);
+				data[1] = vData;
+			}
+			if (count >= 105 && count < 124) {			
+				float[] tmpData = rec.readData(raf);
+				data[2] = tmpData;
+			}
+			if (count >= 153 && count < 172) {			
+				float[] rhData = rec.readData(raf);
+				data[3] = rhData;
+			}
+		}
+		raf.close();
+		return data;
+
+	  }		  	
+}
+
+
+
+ 
 class NwpCallable implements Callable<Array> {
 
 	GridDataset dataset;
